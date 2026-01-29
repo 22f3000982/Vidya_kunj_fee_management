@@ -1,22 +1,55 @@
 # 📚 VIDYA KUNJ - Student Fee Management System
 
-A simple, user-friendly web application for managing student fee records using Excel as the data source.
+A simple, user-friendly web application for managing student fee records using Google Sheets as the database.
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
 ![Flask](https://img.shields.io/badge/Flask-2.3+-green.svg)
+![Vercel](https://img.shields.io/badge/Vercel-Deployed-black.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ## ✨ Features
 
-- **📤 Excel Upload**: Upload your existing Excel file with student fee data
-- **🔍 Smart Search**: Search by student name, ID, or course
+- **☁️ Google Sheets Database**: Data persists in Google Sheets - accessible anywhere
+- **🔍 Smart Search**: Search by student name, father name, ID, or mobile
 - **📅 Month Filter**: Filter records by specific month
 - **✅ Status Filter**: Quickly view paid or unpaid students
 - **✏️ Easy Updates**: Update fee status and receipt numbers with one click
+- **👤 Student Profiles**: Click student name to view complete payment history
+- **📋 Bulk Add**: Add multiple students or months at once
 - **📥 Download**: Export current data as Excel file
 - **📱 Responsive**: Works on desktop, tablet, and mobile
+- **🎨 Conditional Formatting**: Green for paid, Red for unpaid in Google Sheet
 
-## 🚀 Quick Start
+## 🚀 Deploy to Vercel
+
+### Step 1: Fork/Clone this repository
+
+### Step 2: Set up Google Sheets API
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project
+3. Enable **Google Sheets API** and **Google Drive API**
+4. Create a Service Account and download the JSON credentials
+5. Share your Google Sheet with the service account email
+
+### Step 3: Deploy to Vercel
+
+1. Go to [Vercel](https://vercel.com) and sign in with GitHub
+2. Click "New Project" and import this repository
+3. Add Environment Variables:
+   - `GOOGLE_CREDENTIALS`: Paste the entire contents of your `credentials.json` file
+   - `SPREADSHEET_ID`: Your Google Sheet ID (from the URL)
+
+4. Click Deploy!
+
+### Environment Variables Required:
+
+| Variable | Description |
+|----------|-------------|
+| `GOOGLE_CREDENTIALS` | Full JSON content of your Google Service Account credentials |
+| `SPREADSHEET_ID` | The ID of your Google Sheet (found in the URL) |
+
+## 🖥️ Local Development
 
 ### 1. Install Python Dependencies
 

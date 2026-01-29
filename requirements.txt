@@ -3,4 +3,6 @@
 flask>=2.3.0
 pandas>=2.0.0
 openpyxl>=3.1.0
-werkzeug>=2.3.0
+werkzeug>=2.3.0gspread>=6.0.0
+gspread-formatting>=1.1.0
+google-auth>=2.0.0
