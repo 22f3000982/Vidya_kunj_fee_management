@@ -27,13 +27,18 @@ def get_google_credentials():
     """Get Google credentials from environment variable"""
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
     if creds_json:
-        creds_dict = json.loads(creds_json)
-        scopes = [
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
-        ]
-        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        return credentials
+        try:
+            creds_dict = json.loads(creds_json)
+            scopes = [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+            ]
+            credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+            return credentials
+        except Exception as e:
+            print(f"Error parsing credentials: {e}")
+            return None
+    print("GOOGLE_CREDENTIALS environment variable not found")
     return None
 
 def get_google_sheet():
@@ -44,12 +49,19 @@ def get_google_sheet():
             credentials = get_google_credentials()
             if credentials:
                 gc = gspread.authorize(credentials)
+                print("Connected to Google Sheets via environment credentials")
             else:
                 # Fallback to local credentials file for development
-                gc = gspread.service_account(filename='credentials.json')
+                try:
+                    gc = gspread.service_account(filename='credentials.json')
+                    print("Connected to Google Sheets via local credentials file")
+                except Exception as e:
+                    print(f"Failed to load local credentials: {e}")
+                    return None
         if sheet is None:
             spreadsheet = gc.open_by_key(SPREADSHEET_ID)
             sheet = spreadsheet.sheet1
+            print(f"Opened spreadsheet with ID: {SPREADSHEET_ID}")
         return sheet
     except Exception as e:
         print(f"Error connecting to Google Sheets: {e}")
@@ -555,6 +567,38 @@ def download_data():
         as_attachment=True,
         download_name=filename
     )
+
+
+@app.route('/api/debug', methods=['GET'])
+def debug_info():
+    """Debug endpoint to check configuration"""
+    has_creds = os.environ.get('GOOGLE_CREDENTIALS') is not None
+    sheet_id = os.environ.get('SPREADSHEET_ID', SPREADSHEET_ID)
+    
+    # Try to connect
+    connection_status = "Not attempted"
+    record_count = 0
+    error_msg = None
+    
+    try:
+        worksheet = get_google_sheet()
+        if worksheet:
+            connection_status = "Connected"
+            all_values = worksheet.get_all_values()
+            record_count = max(0, len(all_values) - 1)
+        else:
+            connection_status = "Failed - worksheet is None"
+    except Exception as e:
+        connection_status = "Failed"
+        error_msg = str(e)
+    
+    return jsonify({
+        'has_google_credentials': has_creds,
+        'spreadsheet_id': sheet_id,
+        'connection_status': connection_status,
+        'record_count': record_count,
+        'error': error_msg
+    })
 
 
 # For Vercel
