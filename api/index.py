@@ -208,7 +208,7 @@ def get_students():
     
     return jsonify({
         'success': True,
-        'records': filtered,
+        'data': filtered,
         'total': len(filtered)
     })
 
@@ -224,16 +224,36 @@ def get_summary():
     
     # Get unique students
     unique_students = set()
+    unique_months = set()
     for r in records:
         key = f"{r.get('Student Name', '')}_{r.get('Father Name', '')}"
         unique_students.add(key)
+        month = r.get('Month', '')
+        if month:
+            unique_months.add(month)
+    
+    # Sort months
+    month_order = ['January', 'February', 'March', 'April', 'May', 'June',
+                   'July', 'August', 'September', 'October', 'November', 'December']
+    
+    def month_sort_key(m):
+        parts = m.split(' ')
+        month_name = parts[0] if parts else ''
+        year = int(parts[1]) if len(parts) > 1 else 2026
+        month_idx = month_order.index(month_name) if month_name in month_order else 0
+        return (year, month_idx)
+    
+    sorted_months = sorted(unique_months, key=month_sort_key)
     
     return jsonify({
         'success': True,
-        'total_records': total_records,
-        'total_students': len(unique_students),
-        'paid': paid_count,
-        'unpaid': unpaid_count
+        'summary': {
+            'total': total_records,
+            'total_students': len(unique_students),
+            'paid': paid_count,
+            'unpaid': unpaid_count,
+            'months': sorted_months
+        }
     })
 
 
