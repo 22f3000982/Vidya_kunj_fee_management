@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VIDYA KUNJ - Student Fee Management</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=11">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <span class="logo-icon">📚</span>
+                <div class="logo-text">
+                    <h1>VIDYA KUNJ</h1>
+                    <p>Student Fee Management System</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div class="download-dropdown">
+                    <button class="btn btn-secondary" onclick="toggleDownloadMenu()">
+                        <span>📥</span> Download <span class="dropdown-arrow">▼</span>
+                    </button>
+                    <div class="download-menu" id="downloadMenu">
+                        <button onclick="downloadExcel('all')">📊 All Records</button>
+                        <button onclick="downloadExcel('paid')">✅ Paid Only</button>
+                        <button onclick="downloadExcel('unpaid')">❌ Unpaid Only</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container">
+        <!-- Summary Cards -->
+        <section class="summary-section">
+            <div class="summary-card total">
+                <div class="summary-icon">👥</div>
+                <div class="summary-info">
+                    <span class="summary-value" id="totalRecords">0</span>
+                    <span class="summary-label">Total Records</span>
+                </div>
+            </div>
+            <div class="summary-card paid">
+                <div class="summary-icon">✅</div>
+                <div class="summary-info">
+                    <span class="summary-value" id="paidCount">0</span>
+                    <span class="summary-label">Fees Paid</span>
+                </div>
+            </div>
+            <div class="summary-card unpaid">
+                <div class="summary-icon">⚠️</div>
+                <div class="summary-info">
+                    <span class="summary-value" id="unpaidCount">0</span>
+                    <span class="summary-label">Fees Pending</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Action Buttons -->
+        <section class="action-section">
+            <button class="btn btn-primary" onclick="showModal('uploadModal')">
+                <span>📤</span> Upload Excel File
+            </button>
+            <button class="btn btn-success" onclick="showModal('addModal')">
+                <span>➕</span> Add New Record
+            </button>
+            <button class="btn btn-info" onclick="showModal('bulkAddModal')">
+                <span>📋</span> Bulk Add Students
+            </button>
+        </section>
+
+        <!-- Search & Filter Section -->
+        <section class="search-section">
+            <div class="search-box unified-search">
+                <span class="search-icon"></span>
+                <input type="text" id="searchInput" placeholder=". Search by Name, Father Name, or Receipt Number..." 
+                       oninput="autoSearch()">
+            </div>
+            <div class="filter-box">
+                <select id="monthFilter" onchange="autoSearch()">
+                    <option value="">All Months</option>
+                </select>
+                <select id="statusFilter" onchange="autoSearch()">
+                    <option value="">All Status</option>
+                    <option value="paid">✅ Paid</option>
+                    <option value="unpaid">❌ Not Paid</option>
+                </select>
+                <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
+            </div>
+        </section>
+
+        <!-- Data Table -->
+        <section class="table-section">
+            <div class="table-container">
+                <table id="studentTable">
+                    <thead>
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Father Name</th>
+                            <th>Mobile Number</th>
+                            <th>Month</th>
+                            <th>Fee Status</th>
+                            <th>Receipt Number</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <tr class="loading-row">
+                            <td colspan="8">Loading data...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <span id="recordCount">Showing 0 records</span>
+            </div>
+        </section>
+    </main>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📤 Upload Excel File</h2>
+                <button class="close-btn" onclick="hideModal('uploadModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <p>Drag & Drop your Excel file here</p>
+                    <p class="upload-hint">or</p>
+                    <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="handleFileSelect(event)">
+                    <label for="fileInput" class="btn btn-primary">Choose File</label>
+                </div>
+                <div class="upload-info">
+                    <h4>📋 Expected Excel Format:</h4>
+                    <ul>
+                        <li><strong>Student ID</strong> - Unique ID for the student (optional)</li>
+                        <li><strong>Student Name</strong> - Full name of the student</li>
+                        <li><strong>Father Name</strong> - Father's name (to distinguish students with same name)</li>
+                        <li><strong>Mobile Number</strong> - Contact number (optional)</li>
+                        <li><strong>Month</strong> - Fee month (e.g., January 2026)</li>
+                        <li><strong>Fee Status</strong> - "Paid" or "Not Paid"</li>
+                        <li><strong>Receipt Number</strong> - Unique receipt number if paid</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('uploadModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Record Modal -->
+    <div id="addModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>➕ Add New Record</h2>
+                <button class="close-btn" onclick="hideModal('addModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addForm" onsubmit="addRecord(event)">
+                    <div class="form-group">
+                        <label for="studentId">Student ID</label>
+                        <input type="text" id="studentId" placeholder="Enter student ID (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label for="studentName">Student Name *</label>
+                        <input type="text" id="studentName" required placeholder="Enter student name">
+                    </div>
+                    <div class="form-group">
+                        <label for="fatherName">Father's Name *</label>
+                        <input type="text" id="fatherName" required placeholder="Enter father's name">
+                    </div>
+                    <div class="form-group">
+                        <label for="mobileNumber">Mobile Number</label>
+                        <input type="tel" id="mobileNumber" placeholder="Enter mobile number" pattern="[0-9]{10}" maxlength="10">
+                    </div>
+                    <div class="form-group">
+                        <label for="feeMonth">Month *</label>
+                        <select id="feeMonth" required>
+                            <!-- Populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="feeStatus">Fee Status</label>
+                        <select id="feeStatus" onchange="toggleReceiptField()">
+                            <option value="Not Paid">Not Paid</option>
+                            <option value="Paid">Paid</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="receiptGroup" style="display: none;">
+                        <label for="receiptNumber">Receipt Number</label>
+                        <input type="text" id="receiptNumber" placeholder="Enter receipt number">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('addModal')">Cancel</button>
+                        <button type="submit" class="btn btn-success">Add Record</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Month Modal (Quick add for existing student) -->
+    <div id="addMonthModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📅 Add New Month</h2>
+                <button class="close-btn" onclick="hideModal('addMonthModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addMonthForm" onsubmit="addMonthRecord(event)">
+                    <input type="hidden" id="addMonthStudentId">
+                    <input type="hidden" id="addMonthStudentName">
+                    <input type="hidden" id="addMonthFatherName">
+                    <input type="hidden" id="addMonthMobileNumber">
+                    
+                    <div class="edit-info">
+                        <p><strong>Student:</strong> <span id="addMonthStudentDisplay"></span></p>
+                        <p><strong>Father:</strong> <span id="addMonthFatherDisplay"></span></p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Select Month(s) * <span style="font-weight: normal; color: #64748b;">(Click to select)</span></label>
+                        <div class="month-tags" id="addMonthTags">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="newMonthFeeStatus">Fee Status</label>
+                        <select id="newMonthFeeStatus" onchange="toggleNewMonthReceiptField()">
+                            <option value="Not Paid">Not Paid</option>
+                            <option value="Paid">Paid</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="newMonthReceiptGroup" style="display: none;">
+                        <label for="newMonthReceiptNumber">Receipt Number</label>
+                        <input type="text" id="newMonthReceiptNumber" placeholder="Enter receipt number (for all selected months)">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('addMonthModal')">Cancel</button>
+                        <button type="submit" class="btn btn-success">Add Month(s)</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Record Modal -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>✏️ Update Fee Status</h2>
+                <button class="close-btn" onclick="hideModal('editModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="editForm" onsubmit="updateRecord(event)">
+                    <input type="hidden" id="editStudentName">
+                    <input type="hidden" id="editFatherName">
+                    <input type="hidden" id="editMonth">
+                    
+                    <div class="edit-info">
+                        <p><strong>Student:</strong> <span id="editStudentName"></span></p>
+                        <p><strong>Month:</strong> <span id="editMonthDisplay"></span></p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="editFeeStatus">Fee Status</label>
+                        <select id="editFeeStatus" onchange="toggleEditReceiptField()">
+                            <option value="Not Paid">Not Paid</option>
+                            <option value="Paid">Paid</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="editReceiptGroup">
+                        <label for="editReceiptNumber">Receipt Number</label>
+                        <input type="text" id="editReceiptNumber" placeholder="Enter receipt number">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('editModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Update Record</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Student Profile Modal -->
+    <div id="profileModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>👤 Student Profile</h2>
+                <button class="close-btn" onclick="hideModal('profileModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- View Mode -->
+                <div id="profileViewMode">
+                    <div class="profile-header">
+                        <div class="profile-avatar">👤</div>
+                        <div class="profile-info">
+                            <h3 id="profileName">Student Name</h3>
+                            <p><strong>Student ID:</strong> <span id="profileStudentId">-</span></p>
+                            <p><strong>Father's Name:</strong> <span id="profileFatherName">-</span></p>
+                            <p><strong>Mobile:</strong> <span id="profileMobile">-</span></p>
+                        </div>
+                        <button class="btn btn-primary btn-sm" onclick="toggleProfileEdit(true)" style="margin-left: auto;">✏️ Edit Profile</button>
+                    </div>
+                </div>
+                
+                <!-- Edit Mode -->
+                <div id="profileEditMode" style="display: none;">
+                    <form id="editProfileForm" onsubmit="saveProfileEdit(event)">
+                        <input type="hidden" id="editProfileOriginalName">
+                        <input type="hidden" id="editProfileOriginalFather">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="editProfileStudentId">Student ID</label>
+                                <input type="text" id="editProfileStudentId" placeholder="Enter Student ID">
+                            </div>
+                            <div class="form-group">
+                                <label for="editProfileName">Student Name *</label>
+                                <input type="text" id="editProfileName" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="editProfileFather">Father's Name</label>
+                                <input type="text" id="editProfileFather">
+                            </div>
+                            <div class="form-group">
+                                <label for="editProfileMobile">Mobile Number</label>
+                                <input type="text" id="editProfileMobile" placeholder="Enter Mobile Number">
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary" onclick="toggleProfileEdit(false)">Cancel</button>
+                            <button type="submit" class="btn btn-success">💾 Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="profile-stats">
+                    <div class="stat-card">
+                        <span class="stat-value" id="profileTotalMonths">0</span>
+                        <span class="stat-label">Total Months</span>
+                    </div>
+                    <div class="stat-card paid">
+                        <span class="stat-value" id="profilePaidMonths">0</span>
+                        <span class="stat-label">Paid</span>
+                    </div>
+                    <div class="stat-card unpaid">
+                        <span class="stat-value" id="profileUnpaidMonths">0</span>
+                        <span class="stat-label">Unpaid</span>
+                    </div>
+                </div>
+                <h4 style="margin: 1.5rem 0 1rem;">📅 Payment History</h4>
+                <div class="profile-table-container">
+                    <table class="profile-table">
+                        <thead>
+                            <tr>
+                                <th>Month</th>
+                                <th>Status</th>
+                                <th>Receipt Number</th>
+                            </tr>
+                        </thead>
+                        <tbody id="profileRecords">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <input type="hidden" id="currentProfileKey">
+                <button class="btn btn-secondary" onclick="hideModal('profileModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Add Modal -->
+    <div id="bulkAddModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>📋 Bulk Add Students</h2>
+                <button class="close-btn" onclick="hideModal('bulkAddModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Tab Navigation -->
+                <div class="bulk-tabs">
+                    <button class="bulk-tab active" onclick="switchBulkTab('new')">
+                        <span>🆕</span> Add New Students
+                    </button>
+                    <button class="bulk-tab" onclick="switchBulkTab('existing')">
+                        <span>👥</span> Existing Students
+                    </button>
+                </div>
+
+                <!-- Tab 1: Add New Students (Paste from Excel) -->
+                <div id="newStudentsTab" class="bulk-tab-content active">
+                    <div class="bulk-add-info">
+                        <h4>📝 Paste student data from Excel</h4>
+                        <p>Copy 2 columns from Excel: <strong>Student Name</strong> and <strong>Father Name</strong></p>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="newBulkMonth">Select Month *</label>
+                            <select id="newBulkMonth" required>
+                                <option value="">-- Select Month --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="newBulkStatus">Fee Status</label>
+                            <select id="newBulkStatus">
+                                <option value="Paid">✅ Paid</option>
+                                <option value="Not Paid" selected>❌ Not Paid</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="pasteData">Paste Data Here *</label>
+                        <textarea id="pasteData" rows="10" placeholder="Paste from Excel (Tab-separated):
+Rahul Kumar	Suresh Kumar
+Priya Sharma	Ramesh Sharma
+Amit Singh	Vijay Singh
+
+Or paste with comma:
+Rahul Kumar, Suresh Kumar
+Priya Sharma, Ramesh Sharma"></textarea>
+                    </div>
+                    
+                    <div class="paste-preview" id="pastePreview">
+                        <span class="preview-count">0</span> students detected
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('bulkAddModal')">Cancel</button>
+                        <button type="button" class="btn btn-success" onclick="submitNewStudents()">✅ Add All Students</button>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Existing Students (Spotify-like selector) -->
+                <div id="existingStudentsTab" class="bulk-tab-content">
+                    <div class="bulk-add-info">
+                        <h4>🎯 Select existing students</h4>
+                        <p>Type a few letters to search, click to select.</p>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Select Month(s) * <span style="font-weight: normal; color: #64748b;">(Click to select)</span></label>
+                            <div class="month-tags" id="bulkMonthTags">
+                                <!-- Populated by JavaScript -->
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="bulkFeeStatus">Fee Status</label>
+                            <select id="bulkFeeStatus">
+                                <option value="Paid" selected>✅ Paid</option>
+                                <option value="Not Paid">❌ Not Paid</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Search & Select Students</label>
+                        <div class="student-selector">
+                            <div class="selected-students" id="selectedStudents"></div>
+                            <div class="student-search-container">
+                                <input type="text" id="studentSearchInput" placeholder="Type to search... (e.g. priya, rahul)" autocomplete="off">
+                                <div class="student-suggestions" id="studentSuggestions"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="selected-count" id="selectedCount">
+                        <span class="count-badge">0</span> students selected
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('bulkAddModal')">Cancel</button>
+                        <button type="button" class="btn btn-info" onclick="selectAllStudents()">Select All</button>
+                        <button type="button" class="btn btn-warning" onclick="clearSelectedStudents()">Clear All</button>
+                        <button type="button" class="btn btn-success" onclick="submitBulkSelection()">✅ Add Records</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script src="{{ url_for('static', filename='script.js') }}?v=18"></script>
+</body>
+</html>

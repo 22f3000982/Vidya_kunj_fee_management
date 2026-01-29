@@ -1,0 +1,816 @@
+"""
+Student Fee Management System - Backend
+A simple Flask application to manage student fee records using Excel as database.
+"""
+
+from flask import Flask, render_template, request, jsonify, send_file
+from werkzeug.utils import secure_filename
+import pandas as pd
+import os
+from datetime import datetime
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+
+# Configuration
+DATA_FOLDER = 'data'
+EXCEL_FILE = os.path.join(DATA_FOLDER, 'students.xlsx')
+ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
+
+# Ensure data folder exists
+os.makedirs(DATA_FOLDER, exist_ok=True)
+
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def read_excel_data():
+    """Read student data from Excel file"""
+    if not os.path.exists(EXCEL_FILE):
+        return []
+    
+    try:
+        df = pd.read_excel(EXCEL_FILE)
+        # Ensure all required columns exist
+        required_columns = ['Student Name', 'Father Name', 'Month', 'Fee Status', 'Receipt Number']
+        for col in required_columns:
+            if col not in df.columns:
+                df[col] = ''
+        
+        # Fill NaN values
+        df = df.fillna('')
+        
+        # Convert datetime objects to strings to avoid JSON serialization issues
+        for col in df.columns:
+            df[col] = df[col].apply(lambda x: x.strftime('%B %Y') if isinstance(x, datetime) else str(x) if x != '' else '')
+        
+        # Convert to list of dictionaries
+        records = df.to_dict('records')
+        return records
+    except Exception as e:
+        print(f"Error reading Excel: {e}")
+        return []
+
+
+def save_excel_data(records):
+    """Save student data to Excel file"""
+    try:
+        df = pd.DataFrame(records)
+        df.to_excel(EXCEL_FILE, index=False)
+        return True
+    except Exception as e:
+        print(f"Error saving Excel: {e}")
+        return False
+
+
+@app.route('/')
+def index():
+    """Render main page"""
+    return render_template('index.html')
+
+
+@app.route('/api/students', methods=['GET'])
+def get_students():
+    """Get all student records"""
+    records = read_excel_data()
+    return jsonify({
+        'success': True,
+        'data': records,
+        'total': len(records)
+    })
+
+
+@app.route('/api/search', methods=['GET'])
+def search_students():
+    """Search students by name, father name, or receipt number"""
+    query = request.args.get('query', '').strip().lower()
+    month = request.args.get('month', '').strip().lower()
+    status = request.args.get('status', '').strip().lower()
+    receipt = request.args.get('receipt', '').strip().lower()
+    
+    records = read_excel_data()
+    filtered = []
+    
+    for record in records:
+        # Apply filters
+        match = True
+        
+        # If searching by receipt number specifically
+        if receipt:
+            receipt_match = receipt in str(record.get('Receipt Number', '')).lower()
+            if not receipt_match:
+                match = False
+        
+        if query and match:
+            name_match = query in str(record.get('Student Name', '')).lower()
+            father_match = query in str(record.get('Father Name', '')).lower()
+            # Also check if query matches receipt number
+            receipt_query_match = query in str(record.get('Receipt Number', '')).lower()
+            if not (name_match or father_match or receipt_query_match):
+                match = False
+        
+        if month and match:
+            if month not in str(record.get('Month', '')).lower():
+                match = False
+        
+        if status and match:
+            record_status = str(record.get('Fee Status', '')).lower()
+            if status == 'paid' and record_status != 'paid':
+                match = False
+            elif status == 'unpaid' and record_status not in ['not paid', 'unpaid', 'pending']:
+                match = False
+        
+        if match:
+            filtered.append(record)
+    
+    return jsonify({
+        'success': True,
+        'data': filtered,
+        'total': len(filtered)
+    })
+
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    """Upload a new Excel file"""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+    
+    if not allowed_file(file.filename):
+        return jsonify({'success': False, 'error': 'Invalid file type. Please upload an Excel file (.xlsx or .xls)'}), 400
+    
+    try:
+        # Read the uploaded file first to validate it
+        df = pd.read_excel(file)
+        
+        # Convert all column names to strings first (in case any are datetime objects)
+        df.columns = [str(col) if not isinstance(col, str) else col for col in df.columns]
+        
+        # Check if this is a horizontal format (months as columns)
+        # Horizontal format has columns like: Student Name, Father Name, Jan-26, Dec-25, etc.
+        # Vertical format has columns like: Student Name, Father Name, Month, Fee Status, Receipt Number
+        
+        required_vertical_cols = ['Month', 'Fee Status', 'Receipt Number']
+        has_vertical_format = any(col.lower().strip() in ['month', 'fee status', 'receipt number'] 
+                                  for col in df.columns)
+        
+        if not has_vertical_format:
+            # This is horizontal format - convert to vertical
+            df = convert_horizontal_to_vertical(df)
+        else:
+            # Standard vertical format processing
+            column_mapping = {}
+            standard_columns = {
+                'student name': 'Student Name',
+                'name': 'Student Name',
+                'father name': 'Father Name',
+                'father\'s name': 'Father Name',
+                'father': 'Father Name',
+                'month': 'Month',
+                'fee status': 'Fee Status',
+                'status': 'Fee Status',
+                'receipt number': 'Receipt Number',
+                'receipt': 'Receipt Number',
+                'receipt no': 'Receipt Number'
+            }
+            
+            for actual_col in df.columns:
+                col_lower = str(actual_col).lower().strip()
+                if col_lower in standard_columns:
+                    column_mapping[actual_col] = standard_columns[col_lower]
+            
+            df = df.rename(columns=column_mapping)
+            
+            required_columns = ['Student Name', 'Father Name', 'Month', 'Fee Status', 'Receipt Number']
+            for col in required_columns:
+                if col not in df.columns:
+                    df[col] = ''
+            
+            df = df[required_columns]
+        
+        # Fill NaN values
+        df = df.fillna('')
+        
+        # Convert all values to strings, handling datetime objects
+        for col in df.columns:
+            df[col] = df[col].apply(lambda x: x.strftime('%B %Y') if hasattr(x, 'strftime') else (str(x) if x != '' and pd.notna(x) else ''))
+        
+        # Save the cleaned data
+        df.to_excel(EXCEL_FILE, index=False)
+        
+        # Get the record count
+        records = df.to_dict('records')
+        
+        return jsonify({
+            'success': True,
+            'message': f'File uploaded successfully! {len(records)} records found.',
+            'total': len(records)
+        })
+    except Exception as e:
+        print(f"Upload error: {e}")
+        return jsonify({'success': False, 'error': f'Failed to process Excel file: {str(e)}'}), 500
+
+
+def convert_horizontal_to_vertical(df):
+    """
+    Convert horizontal Excel format (months as columns) to vertical format.
+    Input format: Student Name, Father Name, Jan-26, Dec-25, Nov-25...
+    Output format: Student Name, Father Name, Month, Fee Status, Receipt Number
+    """
+    import re
+    
+    # Identify student info columns and month columns
+    student_cols = []
+    month_cols = []
+    
+    # Month patterns to detect
+    month_patterns = [
+        r'^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[-/]?\d{2,4}$',
+        r'^(january|february|march|april|may|june|july|august|september|october|november|december)\s*\d{2,4}$',
+        r'^\d{1,2}[-/]\d{2,4}$'
+    ]
+    
+    month_abbr_to_full = {
+        'jan': 'January', 'feb': 'February', 'mar': 'March', 'apr': 'April',
+        'may': 'May', 'jun': 'June', 'jul': 'July', 'aug': 'August',
+        'sep': 'September', 'oct': 'October', 'nov': 'November', 'dec': 'December'
+    }
+    
+    for col in df.columns:
+        col_str = str(col).lower().strip()
+        is_month = False
+        for pattern in month_patterns:
+            if re.match(pattern, col_str):
+                is_month = True
+                break
+        
+        if is_month:
+            month_cols.append(col)
+        else:
+            student_cols.append(col)
+    
+    # Map student columns to standard names
+    col_mapping = {}
+    for col in student_cols:
+        col_lower = str(col).lower().strip()
+        if 'name' in col_lower and 'father' not in col_lower:
+            col_mapping[col] = 'Student Name'
+        elif 'father' in col_lower:
+            col_mapping[col] = 'Father Name'
+    
+    # Build vertical records
+    records = []
+    for _, row in df.iterrows():
+        student_name = ''
+        father_name = ''
+        
+        for col in student_cols:
+            if col in col_mapping:
+                val = str(row[col]) if pd.notna(row[col]) else ''
+                if col_mapping[col] == 'Student Name':
+                    student_name = val
+                elif col_mapping[col] == 'Father Name':
+                    father_name = val
+        
+        # Process each month column
+        for month_col in month_cols:
+            cell_value = str(row[month_col]) if pd.notna(row[month_col]) else ''
+            
+            # Parse the month column name (e.g., "Jan-26" -> "January 2026")
+            month_str = str(month_col).strip()
+            month_match = re.match(r'^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[-/]?(\d{2,4})$', 
+                                   month_str.lower())
+            if month_match:
+                month_abbr = month_match.group(1)
+                year = month_match.group(2)
+                if len(year) == 2:
+                    year = '20' + year
+                month_full = f"{month_abbr_to_full[month_abbr]} {year}"
+            else:
+                month_full = month_str
+            
+            # Parse cell value: "Paid (RCP-011-JAN26)" or "Not Paid"
+            if cell_value.lower().startswith('paid'):
+                fee_status = 'Paid'
+                # Extract receipt number from parentheses
+                receipt_match = re.search(r'\(([^)]+)\)', cell_value)
+                receipt_number = receipt_match.group(1) if receipt_match else ''
+            else:
+                fee_status = 'Not Paid'
+                receipt_number = ''
+            
+            records.append({
+                'Student Name': student_name,
+                'Father Name': father_name,
+                'Month': month_full,
+                'Fee Status': fee_status,
+                'Receipt Number': receipt_number
+            })
+    
+    return pd.DataFrame(records)
+
+
+@app.route('/api/update', methods=['POST'])
+def update_record():
+    """Update a student's fee status"""
+    data = request.json
+    
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+    
+    student_name = data.get('student_name')
+    father_name = data.get('father_name')
+    month = data.get('month')
+    fee_status = data.get('fee_status')
+    receipt_number = data.get('receipt_number', '')
+    
+    if not all([student_name, month, fee_status]):
+        return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+    
+    records = read_excel_data()
+    
+    # Check for duplicate receipt number if provided (excluding current record)
+    if receipt_number and fee_status.lower() == 'paid':
+        for record in records:
+            if (str(record.get('Receipt Number', '')).lower() == str(receipt_number).lower() and
+                not (str(record.get('Student Name', '')) == str(student_name) and 
+                     str(record.get('Father Name', '')) == str(father_name) and
+                     str(record.get('Month', '')).lower() == str(month).lower())):
+                return jsonify({'success': False, 'error': 'This receipt number already exists for another record'}), 400
+    
+    updated = False
+    
+    for record in records:
+        if (str(record.get('Student Name', '')) == str(student_name) and 
+            str(record.get('Father Name', '')) == str(father_name) and
+            str(record.get('Month', '')).lower() == str(month).lower()):
+            record['Fee Status'] = fee_status
+            record['Receipt Number'] = receipt_number if fee_status.lower() == 'paid' else ''
+            updated = True
+            break
+    
+    if updated:
+        if save_excel_data(records):
+            return jsonify({'success': True, 'message': 'Record updated successfully!'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save changes'}), 500
+    else:
+        return jsonify({'success': False, 'error': 'Record not found'}), 404
+
+
+@app.route('/api/bulk-add', methods=['POST'])
+def bulk_add_records():
+    """Add multiple student fee records at once"""
+    data = request.json
+    
+    if not data or 'records' not in data:
+        return jsonify({'success': False, 'error': 'No records provided'}), 400
+    
+    new_records = data['records']
+    
+    if not new_records or len(new_records) == 0:
+        return jsonify({'success': False, 'error': 'Empty records list'}), 400
+    
+    existing_records = read_excel_data()
+    
+    # Build lookup sets for duplicate checking
+    existing_student_months = set()
+    existing_receipts = set()
+    
+    for record in existing_records:
+        key = f"{record.get('Student Name', '')}_{record.get('Father Name', '')}_{record.get('Month', '').lower()}"
+        existing_student_months.add(key)
+        receipt = str(record.get('Receipt Number', '')).lower().strip()
+        if receipt:
+            existing_receipts.add(receipt)
+    
+    added_count = 0
+    skipped_count = 0
+    errors = []
+    
+    for i, rec in enumerate(new_records):
+        # Validate required fields
+        student_name = rec.get('Student Name', '').strip()
+        father_name = rec.get('Father Name', '').strip()
+        month = rec.get('Month', '').strip()
+        fee_status = rec.get('Fee Status', 'Not Paid').strip()
+        receipt_number = rec.get('Receipt Number', '').strip()
+        
+        if not all([student_name, month]):
+            errors.append(f"Row {i+1}: Missing required fields")
+            skipped_count += 1
+            continue
+        
+        # Check for duplicate student+month
+        key = f"{student_name}_{father_name}_{month.lower()}"
+        if key in existing_student_months:
+            errors.append(f"Row {i+1}: {student_name} already has record for {month}")
+            skipped_count += 1
+            continue
+        
+        # Check for duplicate receipt number
+        if receipt_number and receipt_number.lower() in existing_receipts:
+            errors.append(f"Row {i+1}: Receipt {receipt_number} already exists")
+            skipped_count += 1
+            continue
+        
+        # Add the record
+        new_record = {
+            'Student Name': student_name,
+            'Father Name': father_name,
+            'Month': month,
+            'Fee Status': fee_status,
+            'Receipt Number': receipt_number
+        }
+        
+        existing_records.append(new_record)
+        existing_student_months.add(key)
+        if receipt_number:
+            existing_receipts.add(receipt_number.lower())
+        added_count += 1
+    
+    if added_count > 0:
+        if save_excel_data(existing_records):
+            message = f'Added {added_count} records successfully!'
+            if skipped_count > 0:
+                message += f' ({skipped_count} skipped due to duplicates)'
+            return jsonify({
+                'success': True, 
+                'message': message,
+                'added': added_count,
+                'skipped': skipped_count,
+                'errors': errors[:10]  # Limit error messages
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save records'}), 500
+    else:
+        return jsonify({
+            'success': False, 
+            'error': f'No records added. {skipped_count} records skipped.',
+            'errors': errors[:10]
+        }), 400
+
+
+@app.route('/api/add', methods=['POST'])
+def add_record():
+    """Add a new student fee record"""
+    data = request.json
+    
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+    
+    required_fields = ['student_name', 'father_name', 'month']
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+    
+    records = read_excel_data()
+    
+    # Check for duplicate entry (same student name + father name + month)
+    for record in records:
+        if (str(record.get('Student Name', '')) == str(data['student_name']) and 
+            str(record.get('Father Name', '')) == str(data['father_name']) and
+            str(record.get('Month', '')).lower() == str(data['month']).lower()):
+            return jsonify({'success': False, 'error': 'Record already exists for this student and month'}), 400
+    
+    # Check for duplicate receipt number if provided
+    if data.get('receipt_number'):
+        for record in records:
+            if str(record.get('Receipt Number', '')).lower() == str(data['receipt_number']).lower():
+                return jsonify({'success': False, 'error': 'This receipt number already exists'}), 400
+    
+    new_record = {
+        'Student Name': data['student_name'],
+        'Father Name': data['father_name'],
+        'Month': data['month'],
+        'Fee Status': data.get('fee_status', 'Not Paid'),
+        'Receipt Number': data.get('receipt_number', '')
+    }
+    
+    records.append(new_record)
+    
+    if save_excel_data(records):
+        return jsonify({'success': True, 'message': 'Record added successfully!'})
+    else:
+        return jsonify({'success': False, 'error': 'Failed to save record'}), 500
+
+
+@app.route('/api/delete', methods=['POST'])
+def delete_record():
+    """Delete a student fee record"""
+    data = request.json
+    
+    student_name = data.get('student_name')
+    father_name = data.get('father_name')
+    month = data.get('month')
+    
+    if not all([student_name, month]):
+        return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+    
+    records = read_excel_data()
+    original_count = len(records)
+    
+    records = [r for r in records if not (
+        str(r.get('Student Name', '')) == str(student_name) and 
+        str(r.get('Father Name', '')) == str(father_name) and
+        str(r.get('Month', '')).lower() == str(month).lower()
+    )]
+    
+    if len(records) < original_count:
+        if save_excel_data(records):
+            return jsonify({'success': True, 'message': 'Record deleted successfully!'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save changes'}), 500
+    else:
+        return jsonify({'success': False, 'error': 'Record not found'}), 404
+
+
+@app.route('/api/download', methods=['GET'])
+def download_file():
+    """Download the Excel file in a clean pivoted format"""
+    filter_type = request.args.get('filter', 'all').lower()  # all, paid, unpaid
+    records = read_excel_data()
+    
+    if not records:
+        return jsonify({'success': False, 'error': 'No data to download'}), 404
+    
+    # Filter records based on filter_type
+    if filter_type == 'paid':
+        records = [r for r in records if str(r.get('Fee Status', '')).lower() == 'paid']
+    elif filter_type == 'unpaid':
+        records = [r for r in records if str(r.get('Fee Status', '')).lower() in ['not paid', 'unpaid', 'pending', '']]
+    
+    if not records:
+        filter_label = 'paid' if filter_type == 'paid' else 'unpaid'
+        return jsonify({'success': False, 'error': f'No {filter_label} records to download'}), 404
+    
+    try:
+        # Get unique students and months
+        students = {}
+        all_months = set()
+        
+        for record in records:
+            # Create unique key from name + father
+            student_key = f"{record.get('Student Name', '')}_{record.get('Father Name', '')}"
+            month = record.get('Month', '')
+            
+            if student_key not in students:
+                students[student_key] = {
+                    'Student Name': record.get('Student Name', ''),
+                    'Father Name': record.get('Father Name', ''),
+                    'months': {}
+                }
+            
+            # Store fee status with receipt
+            fee_status = record.get('Fee Status', '')
+            receipt = record.get('Receipt Number', '')
+            
+            if fee_status.lower() == 'paid' and receipt:
+                students[student_key]['months'][month] = f"Paid ({receipt})"
+            elif fee_status.lower() == 'paid':
+                students[student_key]['months'][month] = "Paid"
+            else:
+                students[student_key]['months'][month] = "Not Paid"
+            
+            all_months.add(month)
+        
+        # Sort months (most recent first)
+        def month_sort_key(month_str):
+            try:
+                parts = month_str.split()
+                month_names = ['January', 'February', 'March', 'April', 'May', 'June', 
+                              'July', 'August', 'September', 'October', 'November', 'December']
+                month_idx = month_names.index(parts[0]) if parts[0] in month_names else 0
+                year = int(parts[1]) if len(parts) > 1 else 2026
+                return (year, month_idx)
+            except:
+                return (0, 0)
+        
+        sorted_months = sorted(all_months, key=month_sort_key, reverse=True)
+        
+        # Build export data
+        export_data = []
+        for student_key, student_info in students.items():
+            row = {
+                'Student Name': student_info['Student Name'],
+                'Father Name': student_info['Father Name']
+            }
+            for month in sorted_months:
+                row[month] = student_info['months'].get(month, '-')
+            export_data.append(row)
+        
+        # Sort by student name
+        export_data.sort(key=lambda x: x['Student Name'])
+        
+        # Create DataFrame with ordered columns
+        columns = ['Student Name', 'Father Name'] + sorted_months
+        df = pd.DataFrame(export_data, columns=columns)
+        
+        # Save to temporary file
+        export_file = os.path.join(DATA_FOLDER, 'export_temp.xlsx')
+        
+        # Use ExcelWriter for better formatting
+        with pd.ExcelWriter(export_file, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Fee Records')
+            
+            worksheet = writer.sheets['Fee Records']
+            
+            # Define styles
+            red_fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+            green_fill = PatternFill(start_color='CCFFCC', end_color='CCFFCC', fill_type='solid')
+            header_fill = PatternFill(start_color='4F46E5', end_color='4F46E5', fill_type='solid')
+            header_font = Font(color='FFFFFF', bold=True)
+            red_font = Font(color='CC0000', bold=True)
+            green_font = Font(color='006600')
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            # Style header row
+            for col_idx, col in enumerate(df.columns, 1):
+                cell = worksheet.cell(row=1, column=col_idx)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = thin_border
+            
+            # Style data cells and highlight Not Paid in red
+            for row_idx in range(2, len(df) + 2):
+                for col_idx in range(1, len(df.columns) + 1):
+                    cell = worksheet.cell(row=row_idx, column=col_idx)
+                    cell.border = thin_border
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Check if it's a month column (after first 2 columns)
+                    if col_idx > 2:
+                        cell_value = str(cell.value) if cell.value else ''
+                        if 'Not Paid' in cell_value:
+                            cell.fill = red_fill
+                            cell.font = red_font
+                        elif 'Paid' in cell_value:
+                            cell.fill = green_fill
+                            cell.font = green_font
+            
+            # Auto-adjust column widths
+            for idx, col in enumerate(df.columns):
+                max_length = max(
+                    df[col].astype(str).map(len).max() if len(df) > 0 else 0,
+                    len(str(col))
+                ) + 2
+                col_letter = chr(65 + idx) if idx < 26 else 'A' + chr(65 + idx - 26)
+                worksheet.column_dimensions[col_letter].width = min(max_length, 30)
+            
+            # Set row height for header
+            worksheet.row_dimensions[1].height = 25
+        
+        return send_file(
+            export_file,
+            as_attachment=True,
+            download_name=f'student_fees_{datetime.now().strftime("%Y%m%d")}.xlsx'
+        )
+    except Exception as e:
+        print(f"Error creating export: {e}")
+        return jsonify({'success': False, 'error': 'Failed to create export file'}), 500
+
+
+@app.route('/api/summary', methods=['GET'])
+def get_summary():
+    """Get summary statistics"""
+    records = read_excel_data()
+    
+    total = len(records)
+    paid = sum(1 for r in records if str(r.get('Fee Status', '')).lower() == 'paid')
+    unpaid = total - paid
+    
+    # Get unique months
+    months = list(set(r.get('Month', '') for r in records if r.get('Month')))
+    
+    return jsonify({
+        'success': True,
+        'summary': {
+            'total': total,
+            'paid': paid,
+            'unpaid': unpaid,
+            'months': sorted(months)
+        }
+    })
+
+
+@app.route('/api/unique-students', methods=['GET'])
+def get_unique_students():
+    """Get unique list of students (name + father name) for autocomplete"""
+    records = read_excel_data()
+    
+    # Get unique student combinations
+    seen = set()
+    students = []
+    for record in records:
+        name = str(record.get('Student Name', '')).strip()
+        father = str(record.get('Father Name', '')).strip()
+        key = f"{name}_{father}"
+        if key not in seen and name:
+            seen.add(key)
+            students.append({
+                'name': name,
+                'father': father,
+                'display': f"{name} (F: {father})"
+            })
+    
+    # Sort alphabetically by name
+    students.sort(key=lambda x: x['name'].lower())
+    
+    return jsonify({
+        'success': True,
+        'students': students
+    })
+
+
+@app.route('/api/student/<receipt_number>', methods=['GET'])
+def get_student_by_receipt(receipt_number):
+    """Get student profile by receipt number"""
+    records = read_excel_data()
+    
+    # Find the record with matching receipt number
+    for record in records:
+        if str(record.get('Receipt Number', '')).lower() == receipt_number.lower():
+            student_name = record.get('Student Name', '')
+            father_name = record.get('Father Name', '')
+            # Get all records for this student
+            student_records = [r for r in records if 
+                str(r.get('Student Name', '')) == str(student_name) and
+                str(r.get('Father Name', '')) == str(father_name)]
+            
+            # Calculate payment summary
+            total_months = len(student_records)
+            paid_months = sum(1 for r in student_records if str(r.get('Fee Status', '')).lower() == 'paid')
+            
+            return jsonify({
+                'success': True,
+                'student': {
+                    'name': record.get('Student Name', ''),
+                    'father_name': record.get('Father Name', ''),
+                    'total_months': total_months,
+                    'paid_months': paid_months,
+                    'unpaid_months': total_months - paid_months
+                },
+                'records': student_records
+            })
+    
+    return jsonify({'success': False, 'error': 'Receipt number not found'}), 404
+
+
+@app.route('/api/student-profile/<path:student_key>', methods=['GET'])
+def get_student_profile(student_key):
+    """Get complete student profile with all payment records"""
+    records = read_excel_data()
+    
+    # Parse student key (name_father)
+    parts = student_key.split('_')
+    student_name = parts[0] if len(parts) > 0 else ''
+    father_name = parts[1] if len(parts) > 1 else ''
+    
+    # Get all records for this student
+    student_records = [r for r in records if 
+        str(r.get('Student Name', '')) == str(student_name) and
+        str(r.get('Father Name', '')) == str(father_name)]
+    
+    if not student_records:
+        return jsonify({'success': False, 'error': 'Student not found'}), 404
+    
+    # Get student info from first record
+    first_record = student_records[0]
+    
+    # Calculate payment summary
+    total_months = len(student_records)
+    paid_months = sum(1 for r in student_records if str(r.get('Fee Status', '')).lower() == 'paid')
+    
+    return jsonify({
+        'success': True,
+        'student': {
+            'name': first_record.get('Student Name', ''),
+            'father_name': first_record.get('Father Name', ''),
+            'total_months': total_months,
+            'paid_months': paid_months,
+            'unpaid_months': total_months - paid_months
+        },
+        'records': student_records
+    })
+
+
+if __name__ == '__main__':
+    print("=" * 50)
+    print("  Student Fee Management System")
+    print("  Starting server at http://localhost:5000")
+    print("=" * 50)
+    app.run(debug=True, port=5000)

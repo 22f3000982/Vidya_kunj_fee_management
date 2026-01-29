@@ -1,0 +1,28 @@
+# Credentials - DO NOT COMMIT
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (optional - remove if you want to include sample data)
+data/*.xlsx
+
+# Downloads folder - not part of this project
+Downloads/
