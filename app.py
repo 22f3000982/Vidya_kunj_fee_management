@@ -66,7 +66,7 @@ def read_sheet_data():
 
 
 def save_sheet_data(records):
-    """Save all data to Google Sheet (clear and rewrite)"""
+    """Save all data to Google Sheet (clear and rewrite) - USE SPARINGLY!"""
     try:
         worksheet = get_google_sheet()
         if worksheet is None:
@@ -82,9 +82,9 @@ def save_sheet_data(records):
         
         # Write header
         headers = ['Student ID', 'Student Name', 'Father Name', 'Mobile Number', 'Month', 'Fee Status', 'Receipt Number']
-        worksheet.append_row(headers)
         
-        # Write all records
+        # Build all rows at once
+        all_rows = [headers]
         for record in records:
             row = [
                 str(record.get('Student ID', '')),
@@ -95,12 +95,107 @@ def save_sheet_data(records):
                 str(record.get('Fee Status', '')),
                 str(record.get('Receipt Number', ''))
             ]
-            worksheet.append_row(row)
+            all_rows.append(row)
+        
+        # BATCH WRITE - Write all rows at once (MUCH FASTER!)
+        worksheet.update('A1', all_rows)
         
         return True
     except Exception as e:
         print(f"Error saving to Google Sheet: {e}")
         return False
+
+
+def update_row_in_sheet(row_number, record):
+    """Update a specific row in Google Sheet (FAST - single API call)"""
+    try:
+        worksheet = get_google_sheet()
+        if worksheet is None:
+            return False
+        
+        row = [
+            str(record.get('Student ID', '')),
+            str(record.get('Student Name', '')),
+            str(record.get('Father Name', '')),
+            str(record.get('Mobile Number', '')),
+            str(record.get('Month', '')),
+            str(record.get('Fee Status', '')),
+            str(record.get('Receipt Number', ''))
+        ]
+        
+        # Update only the specific row (row_number is 1-indexed, +1 for header)
+        worksheet.update(f'A{row_number}:G{row_number}', [row])
+        return True
+    except Exception as e:
+        print(f"Error updating row in Google Sheet: {e}")
+        return False
+
+
+def delete_row_in_sheet(row_number):
+    """Delete a specific row in Google Sheet (FAST - single API call)"""
+    try:
+        worksheet = get_google_sheet()
+        if worksheet is None:
+            return False
+        
+        worksheet.delete_rows(row_number)
+        return True
+    except Exception as e:
+        print(f"Error deleting row in Google Sheet: {e}")
+        return False
+
+
+def append_rows_to_sheet(records):
+    """Append multiple records to Google Sheet in one batch (FAST)"""
+    try:
+        worksheet = get_google_sheet()
+        if worksheet is None:
+            return False
+        
+        rows = []
+        for record in records:
+            row = [
+                str(record.get('Student ID', '')),
+                str(record.get('Student Name', '')),
+                str(record.get('Father Name', '')),
+                str(record.get('Mobile Number', '')),
+                str(record.get('Month', '')),
+                str(record.get('Fee Status', '')),
+                str(record.get('Receipt Number', ''))
+            ]
+            rows.append(row)
+        
+        # BATCH APPEND - Much faster than individual appends
+        worksheet.append_rows(rows)
+        return True
+    except Exception as e:
+        print(f"Error appending rows to Google Sheet: {e}")
+        return False
+
+
+def find_row_number(student_name, father_name, month):
+    """Find the row number for a specific record (1-indexed, includes header)"""
+    try:
+        worksheet = get_google_sheet()
+        if worksheet is None:
+            return None
+        
+        all_values = worksheet.get_all_values()
+        
+        for idx, row in enumerate(all_values):
+            if idx == 0:  # Skip header
+                continue
+            # Row format: [Student ID, Student Name, Father Name, Mobile Number, Month, Fee Status, Receipt Number]
+            if len(row) >= 5:
+                if (str(row[1]).strip() == str(student_name).strip() and 
+                    str(row[2]).strip() == str(father_name).strip() and
+                    str(row[4]).strip().lower() == str(month).strip().lower()):
+                    return idx + 1  # Return 1-indexed row number
+        
+        return None
+    except Exception as e:
+        print(f"Error finding row: {e}")
+        return None
 
 
 def append_to_sheet(record):
@@ -150,22 +245,48 @@ def index():
 
 @app.route('/api/students', methods=['GET'])
 def get_students():
-    """Get all student records"""
+    """Get all student records with optional pagination"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    
     records = read_excel_data()
+    total = len(records)
+    
+    # If pagination is requested
+    if page and per_page:
+        start = (page - 1) * per_page
+        end = start + per_page
+        paginated_records = records[start:end]
+        total_pages = (total + per_page - 1) // per_page  # Ceiling division
+        
+        return jsonify({
+            'success': True,
+            'data': paginated_records,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': total_pages,
+            'has_next': page < total_pages,
+            'has_prev': page > 1
+        })
+    
+    # Return all records (for backward compatibility)
     return jsonify({
         'success': True,
         'data': records,
-        'total': len(records)
+        'total': total
     })
 
 
 @app.route('/api/search', methods=['GET'])
 def search_students():
-    """Search students by name, father name, or receipt number"""
+    """Search students by name, father name, or receipt number with pagination"""
     query = request.args.get('query', '').strip().lower()
     month = request.args.get('month', '').strip().lower()
     status = request.args.get('status', '').strip().lower()
     receipt = request.args.get('receipt', '').strip().lower()
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
     
     records = read_excel_data()
     filtered = []
@@ -202,10 +323,30 @@ def search_students():
         if match:
             filtered.append(record)
     
+    total = len(filtered)
+    
+    # Apply pagination
+    if page and per_page:
+        start = (page - 1) * per_page
+        end = start + per_page
+        paginated = filtered[start:end]
+        total_pages = (total + per_page - 1) // per_page
+        
+        return jsonify({
+            'success': True,
+            'data': paginated,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': total_pages,
+            'has_next': page < total_pages,
+            'has_prev': page > 1
+        })
+    
     return jsonify({
         'success': True,
         'data': filtered,
-        'total': len(filtered)
+        'total': total
     })
 
 
@@ -402,9 +543,120 @@ def convert_horizontal_to_vertical(df):
     return pd.DataFrame(records)
 
 
+@app.route('/api/quick-mark-paid', methods=['POST'])
+def quick_mark_paid():
+    """Quick mark a student's fee as paid with auto-generated receipt"""
+    data = request.json
+    
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+    
+    student_name = data.get('student_name')
+    father_name = data.get('father_name')
+    month = data.get('month')
+    
+    if not all([student_name, month]):
+        return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+    
+    records = read_excel_data()
+    
+    # Generate auto receipt number: RCP-MMYY-XXX
+    from datetime import datetime
+    now = datetime.now()
+    prefix = f"RCP-{now.strftime('%m%y')}-"
+    
+    # Find the highest receipt number with this prefix
+    max_num = 0
+    for record in records:
+        receipt = str(record.get('Receipt Number', ''))
+        if receipt.startswith(prefix):
+            try:
+                num = int(receipt.replace(prefix, ''))
+                max_num = max(max_num, num)
+            except:
+                pass
+    
+    receipt_number = f"{prefix}{str(max_num + 1).zfill(3)}"
+    
+    # Find the row number for smart update
+    row_number = find_row_number(student_name, father_name, month)
+    
+    if row_number:
+        # Find the existing record to preserve other fields
+        updated_record = None
+        for record in records:
+            if (str(record.get('Student Name', '')) == str(student_name) and 
+                str(record.get('Father Name', '')) == str(father_name) and
+                str(record.get('Month', '')).lower() == str(month).lower()):
+                updated_record = record.copy()
+                updated_record['Fee Status'] = 'Paid'
+                updated_record['Receipt Number'] = receipt_number
+                break
+        
+        if updated_record and update_row_in_sheet(row_number, updated_record):
+            return jsonify({
+                'success': True, 
+                'message': 'Marked as paid!',
+                'receipt_number': receipt_number
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save changes'}), 500
+    else:
+        return jsonify({'success': False, 'error': 'Record not found'}), 404
+
+
+@app.route('/api/defaulters', methods=['GET'])
+def get_defaulters():
+    """Get list of students with pending fees for 1+ months"""
+    min_months = request.args.get('min_months', 1, type=int)
+    
+    records = read_excel_data()
+    
+    # Group unpaid records by student (name + father name)
+    student_unpaid = {}
+    student_info = {}
+    
+    for record in records:
+        if str(record.get('Fee Status', '')).lower() not in ['paid']:
+            key = f"{record.get('Student Name', '')}_{record.get('Father Name', '')}"
+            if key not in student_unpaid:
+                student_unpaid[key] = []
+                student_info[key] = {
+                    'student_name': record.get('Student Name', ''),
+                    'father_name': record.get('Father Name', ''),
+                    'student_id': record.get('Student ID', ''),
+                    'mobile_number': record.get('Mobile Number', '')
+                }
+            student_unpaid[key].append(record.get('Month', ''))
+    
+    # Filter students with min_months or more unpaid
+    defaulters = []
+    for key, months in student_unpaid.items():
+        if len(months) >= min_months:
+            info = student_info[key]
+            defaulters.append({
+                'student_name': info['student_name'],
+                'father_name': info['father_name'],
+                'student_id': info['student_id'],
+                'mobile_number': info['mobile_number'],
+                'unpaid_count': len(months),
+                'unpaid_months': sorted(months)
+            })
+    
+    # Sort by unpaid count (highest first)
+    defaulters.sort(key=lambda x: x['unpaid_count'], reverse=True)
+    
+    return jsonify({
+        'success': True,
+        'defaulters': defaulters,
+        'total': len(defaulters),
+        'min_months': min_months
+    })
+
+
 @app.route('/api/update', methods=['POST'])
 def update_record():
-    """Update a student's fee status"""
+    """Update a student's fee status - OPTIMIZED with smart row update"""
     data = request.json
     
     if not data:
@@ -430,29 +682,33 @@ def update_record():
                      str(record.get('Month', '')).lower() == str(month).lower())):
                 return jsonify({'success': False, 'error': 'This receipt number already exists for another record'}), 400
     
-    updated = False
+    # Find the row number for smart update
+    row_number = find_row_number(student_name, father_name, month)
     
-    for record in records:
-        if (str(record.get('Student Name', '')) == str(student_name) and 
-            str(record.get('Father Name', '')) == str(father_name) and
-            str(record.get('Month', '')).lower() == str(month).lower()):
-            record['Fee Status'] = fee_status
-            record['Receipt Number'] = receipt_number if fee_status.lower() == 'paid' else ''
-            updated = True
-            break
-    
-    if updated:
-        if save_excel_data(records):
+    if row_number:
+        # Build updated record
+        # First find the existing record to preserve other fields
+        updated_record = None
+        for record in records:
+            if (str(record.get('Student Name', '')) == str(student_name) and 
+                str(record.get('Father Name', '')) == str(father_name) and
+                str(record.get('Month', '')).lower() == str(month).lower()):
+                updated_record = record.copy()
+                updated_record['Fee Status'] = fee_status
+                updated_record['Receipt Number'] = receipt_number if fee_status.lower() == 'paid' else ''
+                break
+        
+        if updated_record and update_row_in_sheet(row_number, updated_record):
             return jsonify({'success': True, 'message': 'Record updated successfully!'})
         else:
-            return jsonify({'success': False, 'error': 'Failed to save changes'}), 500
+            return jsonify({'success': False, 'error': 'Failed to update record'}), 500
     else:
         return jsonify({'success': False, 'error': 'Record not found'}), 404
 
 
 @app.route('/api/bulk-add', methods=['POST'])
 def bulk_add_records():
-    """Add multiple student fee records at once"""
+    """Add multiple student fee records at once - OPTIMIZED with batch append"""
     data = request.json
     
     if not data or 'records' not in data:
@@ -479,6 +735,7 @@ def bulk_add_records():
     added_count = 0
     skipped_count = 0
     errors = []
+    records_to_add = []  # Collect records for batch insert
     
     for i, rec in enumerate(new_records):
         # Validate required fields
@@ -508,7 +765,7 @@ def bulk_add_records():
             skipped_count += 1
             continue
         
-        # Add the record
+        # Add the record to batch list
         new_record = {
             'Student ID': student_id,
             'Student Name': student_name,
@@ -519,14 +776,15 @@ def bulk_add_records():
             'Receipt Number': receipt_number
         }
         
-        existing_records.append(new_record)
+        records_to_add.append(new_record)
         existing_student_months.add(key)
         if receipt_number:
             existing_receipts.add(receipt_number.lower())
         added_count += 1
     
     if added_count > 0:
-        if save_excel_data(existing_records):
+        # BATCH INSERT - Much faster than individual appends!
+        if append_rows_to_sheet(records_to_add):
             message = f'Added {added_count} records successfully!'
             if skipped_count > 0:
                 message += f' ({skipped_count} skipped due to duplicates)'
@@ -595,7 +853,7 @@ def add_record():
 
 @app.route('/api/delete', methods=['POST'])
 def delete_record():
-    """Delete a student fee record"""
+    """Delete a student fee record - OPTIMIZED with direct row delete"""
     data = request.json
     
     student_name = data.get('student_name')
@@ -605,20 +863,14 @@ def delete_record():
     if not all([student_name, month]):
         return jsonify({'success': False, 'error': 'Missing required fields'}), 400
     
-    records = read_excel_data()
-    original_count = len(records)
+    # Find the row number for direct delete
+    row_number = find_row_number(student_name, father_name, month)
     
-    records = [r for r in records if not (
-        str(r.get('Student Name', '')) == str(student_name) and 
-        str(r.get('Father Name', '')) == str(father_name) and
-        str(r.get('Month', '')).lower() == str(month).lower()
-    )]
-    
-    if len(records) < original_count:
-        if save_excel_data(records):
+    if row_number:
+        if delete_row_in_sheet(row_number):
             return jsonify({'success': True, 'message': 'Record deleted successfully!'})
         else:
-            return jsonify({'success': False, 'error': 'Failed to save changes'}), 500
+            return jsonify({'success': False, 'error': 'Failed to delete record'}), 500
     else:
         return jsonify({'success': False, 'error': 'Record not found'}), 404
 

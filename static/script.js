@@ -7,6 +7,10 @@
 // Global Variables
 // ===================================
 let allStudents = [];
+let currentPage = 1;
+let perPage = 50;
+let totalPages = 1;
+let totalRecords = 0;
 
 // ===================================
 // Initialization
@@ -86,19 +90,52 @@ function populateMonthDropdowns() {
 // ===================================
 // Data Loading Functions
 // ===================================
-async function loadStudents() {
+async function loadStudents(page = 1) {
     try {
-        const response = await fetch('/api/students');
+        currentPage = page;
+        const response = await fetch(`/api/students?page=${page}&per_page=${perPage}`);
         const data = await response.json();
         
         if (data.success) {
             allStudents = data.data;
+            totalRecords = data.total;
+            totalPages = data.total_pages || 1;
+            
             renderTable(allStudents);
-            updateRecordCount(allStudents.length);
+            updateRecordCount(allStudents.length, totalRecords);
+            updatePagination(data);
         }
     } catch (error) {
         console.error('Error loading students:', error);
         showToast('Failed to load student data', 'error');
+    }
+}
+
+// Pagination functions
+function updatePagination(data) {
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const pageInfo = document.getElementById('pageInfo');
+    
+    if (prevBtn) prevBtn.disabled = !data.has_prev;
+    if (nextBtn) nextBtn.disabled = !data.has_next;
+    if (pageInfo) pageInfo.textContent = `Page ${data.page || 1} of ${data.total_pages || 1}`;
+}
+
+function goToPage(direction) {
+    if (direction === 'prev' && currentPage > 1) {
+        performSearch(currentPage - 1);
+    } else if (direction === 'next' && currentPage < totalPages) {
+        performSearch(currentPage + 1);
+    }
+}
+
+function changePerPage() {
+    const select = document.getElementById('perPageSelect');
+    if (select) {
+        perPage = parseInt(select.value);
+        currentPage = 1;  // Reset to first page
+        performSearch(1);
     }
 }
 
@@ -165,6 +202,15 @@ function renderTable(students) {
         // Create a unique key from name and father name
         const studentKey = `${student['Student Name'] || ''}_${student['Father Name'] || ''}`;
         
+        // Quick action button - only show for unpaid
+        const quickActionBtn = !isPaid 
+            ? `<button class="btn btn-quick-pay btn-small" 
+                       onclick="quickMarkPaid('${escapeHtml(student['Student Name'] || '')}', '${escapeHtml(student['Father Name'] || '')}', '${escapeHtml(student['Month'] || '')}')"
+                       title="Quick mark as paid">
+                    ⚡ Pay
+                </button>`
+            : '';
+        
         return `
             <tr class="${rowClass}">
                 <td>${escapeHtml(student['Student ID'] || '-')}</td>
@@ -182,6 +228,7 @@ function renderTable(students) {
                 <td>${receiptDisplay}</td>
                 <td>
                     <div class="action-buttons">
+                        ${quickActionBtn}
                         <button class="btn btn-primary btn-small" 
                                 onclick="openEditModal('${escapeHtml(studentKey)}', '${escapeHtml(student['Month'] || '')}', '${escapeHtml(student['Student Name'] || '')}', '${escapeHtml(student['Fee Status'] || '')}', '${escapeHtml(student['Receipt Number'] || '')}')">
                             ✏️ Edit
@@ -201,8 +248,13 @@ function renderTable(students) {
     }).join('');
 }
 
-function updateRecordCount(count) {
-    document.getElementById('recordCount').textContent = `Showing ${count} record${count !== 1 ? 's' : ''}`;
+function updateRecordCount(count, total = null) {
+    const recordCountEl = document.getElementById('recordCount');
+    if (total && total !== count) {
+        recordCountEl.textContent = `Showing ${count} of ${total} records`;
+    } else {
+        recordCountEl.textContent = `Showing ${count} record${count !== 1 ? 's' : ''}`;
+    }
 }
 
 // ===================================
@@ -219,11 +271,13 @@ function autoSearch() {
     
     // Set new timeout (300ms delay for smooth typing)
     searchTimeout = setTimeout(() => {
-        performSearch();
+        currentPage = 1;  // Reset to first page on new search
+        performSearch(1);
     }, 300);
 }
 
-async function performSearch() {
+async function performSearch(page = 1) {
+    currentPage = page;
     const query = document.getElementById('searchInput').value.trim();
     const month = document.getElementById('monthFilter').value;
     const status = document.getElementById('statusFilter').value;
@@ -247,19 +301,26 @@ async function performSearch() {
         }
     }
     
-    // Regular search
+    // Regular search with pagination
     try {
         const params = new URLSearchParams();
         if (query) params.append('query', query);
         if (month) params.append('month', month);
         if (status) params.append('status', status);
+        params.append('page', page);
+        params.append('per_page', perPage);
         
         const response = await fetch(`/api/search?${params.toString()}`);
         const data = await response.json();
         
         if (data.success) {
+            allStudents = data.data;
+            totalRecords = data.total;
+            totalPages = data.total_pages || 1;
+            
             renderTable(data.data);
-            updateRecordCount(data.total);
+            updateRecordCount(data.data.length, data.total);
+            updatePagination(data);
         }
     } catch (error) {
         console.error('Error searching:', error);
@@ -451,7 +512,8 @@ function clearFilters() {
     document.getElementById('searchInput').value = '';
     document.getElementById('monthFilter').value = '';
     document.getElementById('statusFilter').value = '';
-    loadStudents();
+    currentPage = 1;  // Reset to first page
+    loadStudents(1);
 }
 
 // ===================================
@@ -685,6 +747,109 @@ async function deleteRecord(studentKey, month) {
         console.error('Error deleting record:', error);
         showToast('Failed to delete record', 'error');
     }
+}
+
+// ===================================
+// Quick Mark Paid (One-Click Payment)
+// ===================================
+async function quickMarkPaid(studentName, fatherName, month) {
+    // Optional: Confirm before marking as paid
+    // if (!confirm(`Mark as PAID?\n\nStudent: ${studentName}\nMonth: ${month}`)) {
+    //     return;
+    // }
+    
+    try {
+        const response = await fetch('/api/quick-mark-paid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                student_name: studentName,
+                father_name: fatherName,
+                month: month
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast(`✅ Marked as Paid! Receipt: ${result.receipt_number}`, 'success');
+            loadStudents();
+            loadSummary();
+        } else {
+            showToast(result.error || 'Failed to mark as paid', 'error');
+        }
+    } catch (error) {
+        console.error('Error marking as paid:', error);
+        showToast('Failed to mark as paid', 'error');
+    }
+}
+
+// ===================================
+// Defaulters List Functions
+// ===================================
+function showDefaulters() {
+    showModal('defaultersModal');
+    loadDefaulters();
+}
+
+async function loadDefaulters() {
+    const minMonths = document.getElementById('defaulterMinMonths')?.value || 2;
+    
+    try {
+        const response = await fetch(`/api/defaulters?min_months=${minMonths}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            renderDefaulters(data.defaulters, data.total);
+        } else {
+            showToast('Failed to load defaulters', 'error');
+        }
+    } catch (error) {
+        console.error('Error loading defaulters:', error);
+        showToast('Failed to load defaulters', 'error');
+    }
+}
+
+function renderDefaulters(defaulters, total) {
+    const tbody = document.getElementById('defaultersTableBody');
+    const summary = document.getElementById('defaultersSummary');
+    
+    // Update summary
+    summary.innerHTML = `<span class="defaulters-count">${total}</span> students found`;
+    
+    if (defaulters.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 2rem; color: #10b981;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎉</div>
+                    <strong>No defaulters found!</strong><br>
+                    <span style="font-size: 0.875rem;">All students are up to date with their payments.</span>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = defaulters.map(student => {
+        const unpaidMonthsDisplay = student.unpaid_months.join(', ');
+        const badgeClass = student.unpaid_count >= 4 ? 'critical' : (student.unpaid_count >= 3 ? 'warning' : 'moderate');
+        
+        return `
+            <tr class="defaulter-row ${badgeClass}">
+                <td>
+                    <strong class="student-name clickable" onclick="openStudentProfile('${escapeHtml(student.student_name)}_${escapeHtml(student.father_name)}')">${escapeHtml(student.student_name)}</strong>
+                </td>
+                <td>${escapeHtml(student.father_name || '-')}</td>
+                <td>${escapeHtml(student.mobile_number || '-')}</td>
+                <td class="unpaid-months-cell">
+                    <div class="unpaid-months-list">${unpaidMonthsDisplay}</div>
+                </td>
+                <td>
+                    <span class="defaulter-badge ${badgeClass}">${student.unpaid_count} months</span>
+                </td>
+            </tr>
+        `;
+    }).join('');
 }
 
 // ===================================

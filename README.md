@@ -14,6 +14,8 @@ A simple, user-friendly web application for managing student fee records using G
 - **📅 Month Filter**: Filter records by specific month
 - **✅ Status Filter**: Quickly view paid or unpaid students
 - **✏️ Easy Updates**: Update fee status and receipt numbers with one click
+- **⚡ Quick Pay**: One-click mark as paid with auto-generated receipt number
+- **⚠️ Defaulters List**: Auto-detect students with 2+ months unpaid fees
 - **👤 Student Profiles**: Click student name to view complete payment history
 - **📋 Bulk Add**: Add multiple students or months at once
 - **📥 Download**: Export current data as Excel file
@@ -152,10 +154,11 @@ app.run(debug=True, port=5000)  # Change 5000 to your preferred port
 
 - [ ] User authentication and roles
 - [ ] Email notifications for unpaid fees
+- [ ] WhatsApp reminder integration
 - [ ] Payment integration
-- [ ] PDF report generation
-- [ ] Bulk status updates
-- [ ] Fee amount tracking
+- [ ] PDF receipt generation
+- [ ] Dashboard with analytics charts
+- [ ] Fee amount tracking with balance
 - [ ] Due date reminders
 
 ## 🤝 Support

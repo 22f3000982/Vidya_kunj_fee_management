@@ -71,6 +71,9 @@
             <button class="btn btn-info" onclick="showModal('bulkAddModal')">
                 <span>📋</span> Bulk Add Students
             </button>
+            <button class="btn btn-warning" onclick="showDefaulters()">
+                <span>⚠️</span> Defaulters List
+            </button>
         </section>
 
         <!-- Search & Filter Section -->
@@ -117,7 +120,20 @@
                 </table>
             </div>
             <div class="table-footer">
-                <span id="recordCount">Showing 0 records</span>
+                <div class="footer-left">
+                    <span id="recordCount">Showing 0 records</span>
+                    <select id="perPageSelect" onchange="changePerPage()">
+                        <option value="25">25 per page</option>
+                        <option value="50" selected>50 per page</option>
+                        <option value="100">100 per page</option>
+                        <option value="200">200 per page</option>
+                    </select>
+                </div>
+                <div class="pagination" id="pagination">
+                    <button class="btn btn-secondary btn-small" id="prevBtn" onclick="goToPage('prev')" disabled>← Prev</button>
+                    <span id="pageInfo">Page 1 of 1</span>
+                    <button class="btn btn-secondary btn-small" id="nextBtn" onclick="goToPage('next')" disabled>Next →</button>
+                </div>
             </div>
         </section>
     </main>
@@ -495,6 +511,53 @@ Priya Sharma, Ramesh Sharma"></textarea>
     <!-- Toast Notification -->
     <div id="toast" class="toast"></div>
 
-    <script src="/static/script.js?v=19"></script>
+    <!-- Defaulters Modal -->
+    <div id="defaultersModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>⚠️ Defaulters List</h2>
+                <button class="close-btn" onclick="hideModal('defaultersModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="defaulters-header">
+                    <p>Students with <strong>pending fees</strong></p>
+                    <div class="defaulters-filter">
+                        <label>Minimum Unpaid Months:</label>
+                        <select id="defaulterMinMonths" onchange="loadDefaulters()">
+                            <option value="1" selected>1+ month</option>
+                            <option value="2">2+ months</option>
+                            <option value="3">3+ months</option>
+                            <option value="4">4+ months</option>
+                            <option value="5">5+ months</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="defaulters-summary" id="defaultersSummary">
+                    <span class="defaulters-count">0</span> students found
+                </div>
+                <div class="profile-table-container">
+                    <table class="profile-table defaulters-table">
+                        <thead>
+                            <tr>
+                                <th>Student Name</th>
+                                <th>Father's Name</th>
+                                <th>Mobile</th>
+                                <th>Unpaid Months</th>
+                                <th>Pending</th>
+                            </tr>
+                        </thead>
+                        <tbody id="defaultersTableBody">
+                            <tr><td colspan="5" class="loading-row">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('defaultersModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js?v=21"></script>
 </body>
 </html>
